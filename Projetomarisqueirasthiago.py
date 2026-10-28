@@ -1,3 +1,37 @@
+import math
+import unicodedata
+
+
+class EntradaEncerrada(Exception):
+    """Indica que o usuário encerrou a entrada de dados (EOF)."""
+
+
+def nome_valido(nome):
+    """Aceita nomes com letras, espaços e poucos sinais; nunca números."""
+    if not isinstance(nome, str):
+        return False
+    nome = nome.strip()
+    if not nome or not any(caractere.isalpha() for caractere in nome):
+        return False
+    if any(caractere.isdigit() for caractere in nome):
+        return False
+    return all(caractere.isalpha() or caractere in " .'-&" for caractere in nome)
+
+
+def normalizar_texto(texto):
+    """Remove acentos e diferenças de maiúsculas para comparações simples."""
+    texto = unicodedata.normalize("NFKD", str(texto).strip().lower())
+    return "".join(caractere for caractere in texto if not unicodedata.combining(caractere))
+
+
+def ler_entrada(mensagem):
+    """Lê uma entrada e encerra o programa de forma amigável se o usuário usar EOF."""
+    try:
+        return input(mensagem)
+    except EOFError as erro:
+        raise EntradaEncerrada from erro
+
+
 class Produto:
     def __init__(self, nome, categoria, preco, quantidade):
         self.nome = nome
@@ -9,13 +43,22 @@ class Produto:
 
     def verificar_disponibilidade(self, quantidade_solicitada):
         # Produto com estoque zero continua cadastrado, mas indisponível
+        if (not isinstance(quantidade_solicitada, (int, float))
+                or isinstance(quantidade_solicitada, bool)
+                or not math.isfinite(quantidade_solicitada)):
+            return False
         if self.quantidade <= 0:
             return False
         return self.quantidade >= quantidade_solicitada
 
     def atualizar_quantidade(self, nova_quantidade):
         # Quantidade não pode ficar negativa; produto fica indisponível ao chegar a zero
+        if (not isinstance(nova_quantidade, (int, float))
+                or isinstance(nova_quantidade, bool)
+                or not math.isfinite(nova_quantidade)):
+            return False
         self.quantidade = max(0, nova_quantidade)
+        return True
 
 
 class ItemPedido:
@@ -36,6 +79,13 @@ class Pedido:
         self.status_entrega = "Não iniciada"
 
     def adicionar_item(self, produto, quantidade):
+        if not isinstance(produto, Produto):
+            print("Erro: Produto inválido.")
+            return False
+        if produto.empresa is None:
+            print("Erro: Produto não está cadastrado em uma empresa marisqueira.")
+            return False
+
         if self.status not in ("Pendente", "Ajuste Solicitado"):
             print(f"Erro: Não é possível adicionar itens a um pedido com status '{self.status}'.")
             return False
@@ -74,9 +124,14 @@ class Pedido:
         return True
 
     def validar_quantidade(self, quantidade):
-        return quantidade >= 25
+        return (isinstance(quantidade, (int, float))
+                and not isinstance(quantidade, bool)
+                and math.isfinite(quantidade)
+                and quantidade >= 25)
 
     def verificar_disponibilidade(self, produto, quantidade):
+        if not isinstance(produto, Produto):
+            return False
         return produto.verificar_disponibilidade(quantidade)
 
 
@@ -86,7 +141,7 @@ class Avaliacao:
         self.nota = 0
 
     def registrar_nota(self, nota):
-        if not isinstance(nota, int):
+        if isinstance(nota, bool) or not isinstance(nota, int):
             print(f"Erro: Nota inválida ({nota}). A avaliação deve ser um número inteiro entre 1 e 5.")
             return False
         if 1 <= nota <= 5:
@@ -96,6 +151,7 @@ class Avaliacao:
             print(f"Erro: Nota inválida ({nota}). A avaliação deve ser entre 1 e 5 estrelas.")
             return False
 
+
 class Empresa:
     def __init__(self, nome, localizacao):
         self.nome = nome
@@ -104,6 +160,7 @@ class Empresa:
 
 class EmpresaMarisqueira(Empresa):
     LIMITE_ESTOQUE_BAIXO = 50
+    STATUS_ENTREGA_VALIDOS = ("Em preparação", "Em trânsito", "Entregue")
 
     def __init__(self, nome, localizacao):
         super().__init__(nome, localizacao)
@@ -123,17 +180,33 @@ class EmpresaMarisqueira(Empresa):
             return "Verde (Disponível)"
 
     def cadastrar_produto(self, produto):
-        if not produto.nome or not produto.nome.strip():
-            print("Erro: Nome do produto não pode ser vazio.")
+        if not isinstance(produto, Produto):
+            print("Erro: Produto inválido.")
             return False
+        if produto in self.produtos:
+            print(f"Erro: O produto '{produto.nome}' já está cadastrado nesta empresa.")
+            return False
+        if produto.empresa is not None and produto.empresa is not self:
+            print(f"Erro: O produto '{produto.nome}' já pertence a outra empresa.")
+            return False
+        if not nome_valido(produto.nome):
+            print("Erro: Nome do produto inválido. Use apenas letras, espaços, ponto, "
+                  "hífen, apóstrofo ou & (sem números).")
+            return False
+        produto.nome = " ".join(produto.nome.split())
+        produto.categoria = str(produto.categoria).strip().lower()
         if produto.categoria not in ("fresco", "congelado"):
             print(f"Erro: Categoria '{produto.categoria}' inválida. Use 'fresco' ou 'congelado'.")
             return False
-        if not isinstance(produto.preco, (int, float)):
-            print("Erro: Preço deve ser um número.")
+        if (not isinstance(produto.preco, (int, float))
+                or isinstance(produto.preco, bool)
+                or not math.isfinite(produto.preco)):
+            print("Erro: Preço deve ser um número válido.")
             return False
-        if not isinstance(produto.quantidade, (int, float)):
-            print("Erro: Quantidade deve ser um número.")
+        if (not isinstance(produto.quantidade, (int, float))
+                or isinstance(produto.quantidade, bool)
+                or not math.isfinite(produto.quantidade)):
+            print("Erro: Quantidade deve ser um número válido.")
             return False
         if produto.preco <= 0:
             print("Erro: Preço deve ser maior que zero.")
@@ -147,14 +220,23 @@ class EmpresaMarisqueira(Empresa):
         return True
 
     def alterar_quantidade(self, produto, nova_quantidade):
+        if not isinstance(produto, Produto):
+            print("Erro: Produto inválido.")
+            return False
         if produto not in self.produtos:
             print(f"Erro: Produto '{produto.nome}' não pertence a esta empresa.")
-            return
+            return False
+        if (not isinstance(nova_quantidade, (int, float))
+                or isinstance(nova_quantidade, bool)
+                or not math.isfinite(nova_quantidade)):
+            print("Erro: Quantidade inválida. Nenhuma alteração feita.")
+            return False
         if nova_quantidade < 0:
             print("Erro: Quantidade não pode ser negativa. Nenhuma alteração feita.")
-            return
+            return False
         produto.atualizar_quantidade(nova_quantidade)
         print(f"[{self.nome}] Quantidade de '{produto.nome}' atualizada para {produto.quantidade}kg.")
+        return True
 
     def receber_pedido(self, pedido):
         if pedido.empresa_marisqueira != self:
@@ -218,8 +300,13 @@ class EmpresaMarisqueira(Empresa):
         if pedido.status != "Aceito":
             print(f"Erro: Só é possível atualizar a entrega de um pedido aceito. Status atual: '{pedido.status}'.")
             return False
-        pedido.status_entrega = status
-        print(f"[{self.nome}] Status da entrega atualizado para: '{status}'.")
+        status_por_nome = {normalizar_texto(opcao): opcao for opcao in self.STATUS_ENTREGA_VALIDOS}
+        status_normalizado = status_por_nome.get(normalizar_texto(status))
+        if status_normalizado is None:
+            print("Erro: Status de entrega inválido. Use: Em preparação, Em trânsito ou Entregue.")
+            return False
+        pedido.status_entrega = status_normalizado
+        print(f"[{self.nome}] Status da entrega atualizado para: '{status_normalizado}'.")
         return True
 
     def media_avaliacoes(self):
@@ -237,16 +324,21 @@ class EmpresaCompradora(Empresa):
                            filtro_avaliacao=None, ordenar_por=None):
         resultados = []
         for p in todos_produtos:
+            if not isinstance(p, Produto):
+                continue
             if filtro_nome and filtro_nome.lower() not in p.nome.lower():
                 continue
             if filtro_categoria and filtro_categoria.lower() != p.categoria.lower():
                 continue
-            if filtro_localizacao and filtro_localizacao.lower() not in p.empresa.localizacao.lower():
-                continue
-            if filtro_empresa and filtro_empresa.lower() not in p.empresa.nome.lower():
-                continue
-            if filtro_avaliacao and p.empresa.media_avaliacoes() < filtro_avaliacao:
-                continue
+            if filtro_localizacao:
+                if p.empresa is None or filtro_localizacao.lower() not in p.empresa.localizacao.lower():
+                    continue
+            if filtro_empresa:
+                if p.empresa is None or filtro_empresa.lower() not in p.empresa.nome.lower():
+                    continue
+            if filtro_avaliacao:
+                if p.empresa is None or p.empresa.media_avaliacoes() < filtro_avaliacao:
+                    continue
             resultados.append(p)
 
         # Ordenação
@@ -277,15 +369,18 @@ class EmpresaCompradora(Empresa):
         return comparacao
 
     def realizar_pedido(self, endereco_entrega, tempo_entrega):
-        if not endereco_entrega or not endereco_entrega.strip():
+        if not isinstance(endereco_entrega, str) or not endereco_entrega.strip():
             print("Erro: Endereço de entrega não pode ser vazio.")
             return None
-        if not tempo_entrega or not tempo_entrega.strip():
+        if not isinstance(tempo_entrega, str) or not tempo_entrega.strip():
             print("Erro: Tempo de entrega não pode ser vazio.")
             return None
-        return Pedido(self, endereco_entrega, tempo_entrega)
+        return Pedido(self, endereco_entrega.strip(), tempo_entrega.strip())
 
     def avaliar_empresa(self, empresa_marisqueira, nota):
+        if not isinstance(empresa_marisqueira, EmpresaMarisqueira):
+            print("Erro: Empresa marisqueira inválida para avaliação.")
+            return False
         tem_compra = False
         for pedido in empresa_marisqueira.pedidos:
             if pedido.empresa_compradora == self and pedido.status == "Aceito":
@@ -312,6 +407,7 @@ class EmpresaCompradora(Empresa):
 marisqueiras_cadastradas = []
 compradoras_cadastradas  = []
 pedidos_cadastrados      = []
+dados_demo_carregados    = False
 
 
 def linha():
@@ -324,20 +420,110 @@ def titulo(texto):
     print(f"{'=' * 55}")
 
 
+def ler_texto(mensagem):
+    """Lê um texto obrigatório (pode conter números, útil para endereços)."""
+    while True:
+        texto = " ".join(ler_entrada(mensagem).split())
+        if texto:
+            return texto
+        print("  [!] Este campo não pode ficar vazio.")
+
+
+def ler_texto_opcional(mensagem):
+    texto = " ".join(ler_entrada(mensagem).split())
+    return texto or None
+
+
+def ler_nome(mensagem):
+    """Lê um nome sem números e sem símbolos estranhos."""
+    while True:
+        nome = " ".join(ler_entrada(mensagem).split())
+        if not nome:
+            print("  [!] O nome não pode ficar vazio.")
+            continue
+        if any(caractere.isdigit() for caractere in nome):
+            print("  [!] O nome não pode conter números. Use apenas letras.")
+            continue
+        if not nome_valido(nome):
+            print("  [!] Nome inválido. Use apenas letras, espaços, ponto, hífen, apóstrofo ou &.")
+            continue
+        return nome
+
+
+def ler_opcao(mensagem, opcoes, permitir_vazio=False):
+    """Repete a pergunta até o usuário digitar uma opção válida."""
+    if isinstance(opcoes, dict):
+        mapa = {str(chave).strip().lower(): valor for chave, valor in opcoes.items()}
+        exemplos = " | ".join(str(chave) for chave in opcoes)
+    else:
+        mapa = {str(opcao).strip().lower(): opcao for opcao in opcoes}
+        exemplos = " | ".join(str(opcao) for opcao in opcoes)
+
+    while True:
+        valor = ler_entrada(mensagem).strip()
+        if permitir_vazio and not valor:
+            return None
+        escolha = mapa.get(valor.lower())
+        if escolha is not None:
+            return escolha
+        print(f"  [!] Opção inválida. Opções válidas: {exemplos}.")
+
+
+def ler_inteiro(mensagem, minimo=None, maximo=None):
+    while True:
+        texto = ler_entrada(mensagem).strip()
+        try:
+            valor = int(texto)
+        except ValueError:
+            print("  [!] Digite apenas um número inteiro.")
+            continue
+        if minimo is not None and valor < minimo:
+            print(f"  [!] O número deve ser maior ou igual a {minimo}.")
+            continue
+        if maximo is not None and valor > maximo:
+            print(f"  [!] O número deve ser menor ou igual a {maximo}.")
+            continue
+        return valor
+
+
+def ler_decimal(mensagem, minimo=None, maximo=None, permitir_vazio=False):
+    while True:
+        texto = ler_entrada(mensagem).strip()
+        if permitir_vazio and not texto:
+            return None
+        try:
+            valor = float(texto.replace(",", "."))
+        except ValueError:
+            print("  [!] Valor inválido. Digite um número (ex.: 35 ou 35,50).")
+            continue
+        if not math.isfinite(valor):
+            print("  [!] Valor inválido. Digite um número finito.")
+            continue
+        if minimo is not None and valor < minimo:
+            print(f"  [!] O valor deve ser maior ou igual a {minimo}.")
+            continue
+        if maximo is not None and valor > maximo:
+            print(f"  [!] O valor deve ser menor ou igual a {maximo}.")
+            continue
+        return valor
+
+
 def escolher(lista, rotulo="item"):
     if not lista:
         print(f"  [!] Nenhum(a) {rotulo} cadastrado(a).")
         return None
     for i, item in enumerate(lista, 1):
         print(f"  [{i}] {item.nome}")
-    try:
-        idx = int(input(f"  Escolha o número do(a) {rotulo}: ")) - 1
-        if 0 <= idx < len(lista):
-            return lista[idx]
-    except ValueError:
-        pass
-    print("  [!] Opção inválida.")
-    return None
+    while True:
+        indice = ler_inteiro(
+            f"  Escolha o número do(a) {rotulo} (0 para cancelar): ",
+            0,
+            len(lista),
+        )
+        if indice == 0:
+            print("  Operação cancelada.")
+            return None
+        return lista[indice - 1]
 
 
 def escolher_produto(empresa):
@@ -347,30 +533,16 @@ def escolher_produto(empresa):
     for i, p in enumerate(empresa.produtos, 1):
         disp = "Disponível" if p.quantidade > 0 else "Indisponível"
         print(f"  [{i}] {p.nome} | {p.categoria} | R${p.preco:.2f}/kg | {p.quantidade}kg [{disp}]")
-    try:
-        idx = int(input("  Escolha o número do produto: ")) - 1
-        if 0 <= idx < len(empresa.produtos):
-            return empresa.produtos[idx]
-    except ValueError:
-        pass
-    print("  [!] Opção inválida.")
-    return None
-
-
-def pedir_float(msg):
-    try:
-        return float(input(msg))
-    except ValueError:
-        print("  [!] Valor inválido.")
-        return None
-
-
-def pedir_int(msg):
-    try:
-        return int(input(msg))
-    except ValueError:
-        print("  [!] Valor inválido.")
-        return None
+    while True:
+        indice = ler_inteiro(
+            "  Escolha o número do produto (0 para cancelar): ",
+            0,
+            len(empresa.produtos),
+        )
+        if indice == 0:
+            print("  Operação cancelada.")
+            return None
+        return empresa.produtos[indice - 1]
 
 
 # == SUBMENU: MARISQUEIRAS ==
@@ -385,11 +557,14 @@ def menu_marisqueiras():
         print("  [6] Ver avaliações")
         print("  [0] Voltar")
         linha()
-        op = input("  Opção: ").strip()
+        op = ler_opcao("  Opção: ", ["1", "2", "3", "4", "5", "6", "0"])
 
         if op == "1":
-            nome = input("  Nome da marisqueira: ").strip()
-            loc  = input("  Localização: ").strip()
+            nome = ler_nome("  Nome da marisqueira: ")
+            if any(m.nome.lower() == nome.lower() for m in marisqueiras_cadastradas):
+                print(f"  [!] Já existe uma marisqueira chamada '{nome}'.")
+                continue
+            loc = ler_texto("  Localização: ")
             m = EmpresaMarisqueira(nome, loc)
             marisqueiras_cadastradas.append(m)
             print(f"  [✓] '{nome}' criada com sucesso!")
@@ -409,15 +584,11 @@ def menu_marisqueiras():
             m = escolher(marisqueiras_cadastradas, "marisqueira")
             if m is None:
                 continue
-            nome = input("  Nome do produto: ").strip()
+            nome = ler_nome("  Nome do produto: ")
             print("  Categorias aceitas: fresco / congelado")
-            cat  = input("  Categoria: ").strip()
-            preco = pedir_float("  Preço (R$/kg): ")
-            if preco is None:
-                continue
-            qtd = pedir_float("  Quantidade (kg, mín. 25kg): ")
-            if qtd is None:
-                continue
+            cat = ler_opcao("  Categoria: ", ["fresco", "congelado"])
+            preco = ler_decimal("  Preço (R$/kg): ", minimo=0.01)
+            qtd = ler_decimal("  Quantidade (kg, mín. 25kg): ", minimo=25)
             p = Produto(nome, cat, preco, qtd)
             m.cadastrar_produto(p)
 
@@ -430,9 +601,7 @@ def menu_marisqueiras():
             p = escolher_produto(m)
             if p is None:
                 continue
-            nova = pedir_float(f"  Nova quantidade para '{p.nome}' (kg): ")
-            if nova is None:
-                continue
+            nova = ler_decimal(f"  Nova quantidade para '{p.nome}' (kg): ", minimo=0)
             m.alterar_quantidade(p, nova)
 
         elif op == "5":
@@ -441,8 +610,8 @@ def menu_marisqueiras():
             m = escolher(marisqueiras_cadastradas, "marisqueira")
             if m is None:
                 continue
-            em_hora = input("  Está em horário de funcionamento? (s/n): ").strip().lower()
-            status = m.obter_status_visual(em_hora != "n")
+            em_hora = ler_opcao("  Está em horário de funcionamento? (s/n): ", ["s", "n"])
+            status = m.obter_status_visual(em_hora == "s")
             print(f"  Status visual: {status}")
 
         elif op == "6":
@@ -475,11 +644,14 @@ def menu_compradoras():
         print("  [5] Avaliar marisqueira")
         print("  [0] Voltar")
         linha()
-        op = input("  Opção: ").strip()
+        op = ler_opcao("  Opção: ", ["1", "2", "3", "4", "5", "0"])
 
         if op == "1":
-            nome = input("  Nome da compradora: ").strip()
-            loc  = input("  Localização: ").strip()
+            nome = ler_nome("  Nome da compradora: ")
+            if any(c.nome.lower() == nome.lower() for c in compradoras_cadastradas):
+                print(f"  [!] Já existe uma compradora chamada '{nome}'.")
+                continue
+            loc = ler_texto("  Localização: ")
             c = EmpresaCompradora(nome, loc)
             compradoras_cadastradas.append(c)
             print(f"  [✓] '{nome}' criada com sucesso!")
@@ -501,14 +673,26 @@ def menu_compradoras():
                 continue
 
             print("  Filtros (pressione Enter para ignorar):")
-            f_nome = input("  Nome do produto: ").strip() or None
-            f_cat  = input("  Categoria (fresco/congelado): ").strip() or None
-            f_loc  = input("  Localização da marisqueira: ").strip() or None
-            f_emp  = input("  Nome da marisqueira: ").strip() or None
-            f_aval_str = input("  Avaliação mínima (1 a 5, ou Enter): ").strip()
-            f_aval = float(f_aval_str) if f_aval_str else None
+            f_nome = ler_texto_opcional("  Nome do produto: ")
+            f_cat = ler_opcao(
+                "  Categoria (fresco/congelado): ",
+                ["fresco", "congelado"],
+                permitir_vazio=True,
+            )
+            f_loc = ler_texto_opcional("  Localização da marisqueira: ")
+            f_emp = ler_texto_opcional("  Nome da marisqueira: ")
+            f_aval = ler_decimal(
+                "  Avaliação mínima (1 a 5, ou Enter): ",
+                minimo=1,
+                maximo=5,
+                permitir_vazio=True,
+            )
             print("  Opções de ordenação: menor_preco | maior_preco | melhor_avaliacao | localizacao | (Enter=nenhuma)")
-            ordem = input("  Ordenar por: ").strip() or None
+            ordem = ler_opcao(
+                "  Ordenar por: ",
+                ["menor_preco", "maior_preco", "melhor_avaliacao", "localizacao"],
+                permitir_vazio=True,
+            )
 
             c = compradoras_cadastradas[0] if compradoras_cadastradas else EmpresaCompradora("Consulta", "N/A")
             resultados = c.consultar_produtos(
@@ -541,13 +725,21 @@ def menu_compradoras():
                 continue
             for i, p in enumerate(todos, 1):
                 print(f"  [{i}] {p.nome} ({p.empresa.nome})")
-            idx1 = pedir_int("  Número do produto 1: ")
-            idx2 = pedir_int("  Número do produto 2: ")
-            if idx1 is None or idx2 is None:
-                continue
-            if not (1 <= idx1 <= len(todos) and 1 <= idx2 <= len(todos)):
-                print("  [!] Índices inválidos.")
-                continue
+            while True:
+                idx1 = ler_inteiro(
+                    f"  Número do produto 1 (1-{len(todos)}): ",
+                    1,
+                    len(todos),
+                )
+                idx2 = ler_inteiro(
+                    f"  Número do produto 2 (1-{len(todos)}): ",
+                    1,
+                    len(todos),
+                )
+                if idx1 == idx2:
+                    print("  [!] Escolha dois produtos diferentes.")
+                    continue
+                break
             c = compradoras_cadastradas[0] if compradoras_cadastradas else EmpresaCompradora("Consulta", "N/A")
             print()
             print(c.comparar_produtos(todos[idx1 - 1], todos[idx2 - 1]))
@@ -562,9 +754,7 @@ def menu_compradoras():
             m = escolher(marisqueiras_cadastradas, "marisqueira")
             if m is None:
                 continue
-            nota = pedir_int("  Nota (1 a 5): ")
-            if nota is None:
-                continue
+            nota = ler_inteiro("  Nota (1 a 5): ", 1, 5)
             c.avaliar_empresa(m, nota)
 
         elif op == "0":
@@ -588,7 +778,7 @@ def menu_pedidos():
         print("  [9] Marisqueira: atualizar status de entrega")
         print("  [0] Voltar")
         linha()
-        op = input("  Opção: ").strip()
+        op = ler_opcao("  Opção: ", ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"])
 
         if op == "1":
             linha()
@@ -596,8 +786,8 @@ def menu_pedidos():
             c = escolher(compradoras_cadastradas, "compradora")
             if c is None:
                 continue
-            end   = input("  Endereço de entrega: ").strip()
-            tempo = input("  Tempo de entrega estimado: ").strip()
+            end = ler_texto("  Endereço de entrega: ")
+            tempo = ler_texto("  Tempo de entrega estimado: ")
             p = c.realizar_pedido(end, tempo)
             if p:
                 pedidos_cadastrados.append(p)
@@ -613,15 +803,8 @@ def menu_pedidos():
             for i, p in enumerate(pendentes, 1):
                 print(f"  [{i}] Pedido #{pedidos_cadastrados.index(p)+1} — {p.empresa_compradora.nome}"
                       f" | Status: {p.status} | Itens atuais: {len(p.itens)}")
-            try:
-                idx = int(input("  Escolha o pedido: ")) - 1
-                if not (0 <= idx < len(pendentes)):
-                    print("  [!] Opção inválida.")
-                    continue
-            except ValueError:
-                print("  [!] Valor inválido.")
-                continue
-            pedido = pendentes[idx]
+            idx = ler_inteiro(f"  Escolha o pedido (1-{len(pendentes)}): ", 1, len(pendentes))
+            pedido = pendentes[idx - 1]
 
             print("  Escolha a marisqueira do produto:")
             m = escolher(marisqueiras_cadastradas, "marisqueira")
@@ -631,9 +814,7 @@ def menu_pedidos():
             prod = escolher_produto(m)
             if prod is None:
                 continue
-            qtd = pedir_float("  Quantidade (kg, mínimo 25kg): ")
-            if qtd is None:
-                continue
+            qtd = ler_decimal("  Quantidade (kg, mínimo 25kg): ", minimo=25)
             pedido.adicionar_item(prod, qtd)
 
         elif op == "3":
@@ -653,9 +834,11 @@ def menu_pedidos():
                 continue
             for i, p in enumerate(pedidos_cadastrados, 1):
                 print(f"  [{i}] Pedido #{i} — {p.empresa_compradora.nome} | {p.status}")
-            idx = pedir_int("  Número do pedido: ")
-            if idx is None or not (1 <= idx <= len(pedidos_cadastrados)):
-                continue
+            idx = ler_inteiro(
+                f"  Número do pedido (1-{len(pedidos_cadastrados)}): ",
+                1,
+                len(pedidos_cadastrados),
+            )
             p = pedidos_cadastrados[idx - 1]
             linha()
             print(f"  Detalhes do Pedido #{idx}")
@@ -685,9 +868,7 @@ def menu_pedidos():
                 continue
             for i, p in enumerate(pendentes, 1):
                 print(f"  [{i}] Pedido #{pedidos_cadastrados.index(p)+1} — {p.empresa_compradora.nome}")
-            idx = pedir_int("  Escolha: ")
-            if idx is None or not (1 <= idx <= len(pendentes)):
-                continue
+            idx = ler_inteiro(f"  Escolha (1-{len(pendentes)}): ", 1, len(pendentes))
             m.receber_pedido(pendentes[idx - 1])
 
         elif op == "6":
@@ -702,9 +883,7 @@ def menu_pedidos():
                 continue
             for i, p in enumerate(disponiveis, 1):
                 print(f"  [{i}] Pedido #{pedidos_cadastrados.index(p)+1} — {p.empresa_compradora.nome} | Status: {p.status}")
-            idx = pedir_int("  Escolha: ")
-            if idx is None or not (1 <= idx <= len(disponiveis)):
-                continue
+            idx = ler_inteiro(f"  Escolha (1-{len(disponiveis)}): ", 1, len(disponiveis))
             m.aceitar_pedido(disponiveis[idx - 1])
 
         elif op == "7":
@@ -719,9 +898,7 @@ def menu_pedidos():
                 continue
             for i, p in enumerate(rejeitaveis, 1):
                 print(f"  [{i}] Pedido #{pedidos_cadastrados.index(p)+1} — {p.empresa_compradora.nome} | Status: {p.status}")
-            idx = pedir_int("  Escolha: ")
-            if idx is None or not (1 <= idx <= len(rejeitaveis)):
-                continue
+            idx = ler_inteiro(f"  Escolha (1-{len(rejeitaveis)}): ", 1, len(rejeitaveis))
             m.rejeitar_pedido(rejeitaveis[idx - 1])
 
         elif op == "8":
@@ -736,9 +913,7 @@ def menu_pedidos():
                 continue
             for i, p in enumerate(ajustaveis, 1):
                 print(f"  [{i}] Pedido #{pedidos_cadastrados.index(p)+1} — {p.empresa_compradora.nome}")
-            idx = pedir_int("  Escolha: ")
-            if idx is None or not (1 <= idx <= len(ajustaveis)):
-                continue
+            idx = ler_inteiro(f"  Escolha (1-{len(ajustaveis)}): ", 1, len(ajustaveis))
             m.solicitar_ajuste(ajustaveis[idx - 1])
 
         elif op == "9":
@@ -753,11 +928,12 @@ def menu_pedidos():
                 continue
             for i, p in enumerate(aceitos, 1):
                 print(f"  [{i}] Pedido #{pedidos_cadastrados.index(p)+1} — {p.empresa_compradora.nome} | Entrega atual: {p.status_entrega}")
-            idx = pedir_int("  Escolha: ")
-            if idx is None or not (1 <= idx <= len(aceitos)):
-                continue
-            print("  Opções: Em preparação | Em trânsito | Entregue")
-            novo_status = input("  Novo status de entrega: ").strip()
+            idx = ler_inteiro(f"  Escolha (1-{len(aceitos)}): ", 1, len(aceitos))
+            print("  Opções: [1] Em preparação | [2] Em trânsito | [3] Entregue")
+            novo_status = ler_opcao(
+                "  Novo status de entrega: ",
+                {"1": "Em preparação", "2": "Em trânsito", "3": "Entregue"},
+            )
             m.atualizar_status_entrega(aceitos[idx - 1], novo_status)
 
         elif op == "0":
@@ -768,6 +944,11 @@ def menu_pedidos():
 
 # == CARREGAR DADOS DE EXEMPLO ==
 def carregar_dados_demo():
+    global dados_demo_carregados
+    if dados_demo_carregados:
+        print("  [!] Os dados de demonstração já foram carregados.")
+        return
+
     m1 = EmpresaMarisqueira("Mariscos da Ilha", "Ilha de Deus")
     m2 = EmpresaMarisqueira("Frutos do Mar LTDA", "Brasília Teimosa")
     marisqueiras_cadastradas.extend([m1, m2])
@@ -782,6 +963,7 @@ def carregar_dados_demo():
     c1 = EmpresaCompradora("Restaurante Sabor do Mar", "Boa Viagem")
     c2 = EmpresaCompradora("Cantina do Porto", "Recife Antigo")
     compradoras_cadastradas.extend([c1, c2])
+    dados_demo_carregados = True
 
     print("\n  [✓] Dados de demonstração carregados com sucesso!")
     print("  • 2 Marisqueiras: 'Mariscos da Ilha' e 'Frutos do Mar LTDA'")
@@ -799,7 +981,7 @@ def main():
         print("  [D] Carregar dados de demonstração (pré-cadastrados)")
         print("  [0] Sair")
         linha()
-        op = input("  Escolha uma opção: ").strip().upper()
+        op = ler_opcao("  Escolha uma opção: ", ["1", "2", "3", "D", "0"])
 
         if op == "1":
             menu_marisqueiras()
@@ -812,10 +994,11 @@ def main():
         elif op == "0":
             print("\n  Encerrando o programa. Até logo!\n")
             break
-        else:
-            print("  [!] Opção inválida. Tente novamente.")
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except (EntradaEncerrada, KeyboardInterrupt):
+        print("\n\n  Encerrando o programa. Até logo!\n")
 
